@@ -1,31 +1,12 @@
-# This workflow will build and push a node.js application to an Azure Web App when a commit is pushed to your default branch.
-#
-# This workflow assumes you have already created the target Azure App Service web app.
-# For instructions see https://docs.microsoft.com/en-us/azure/app-service/quickstart-nodejs?tabs=linux&pivots=development-environment-cli
-#
-# To configure this workflow:
-#
-# 1. Download the Publish Profile for your Azure Web App. You can download this file from the Overview page of your Web App in the Azure Portal.
-#    For more information: https://docs.microsoft.com/en-us/azure/app-service/deploy-github-actions?tabs=applevel#generate-deployment-credentials
-#
-# 2. Create a secret in your repository named AZURE_WEBAPP_PUBLISH_PROFILE, paste the publish profile contents as the value of the secret.
-#    For instructions on obtaining the publish profile see: https://docs.microsoft.com/azure/app-service/deploy-github-actions#configure-the-github-secret
-#
-# 3. Change the value for the AZURE_WEBAPP_NAME. Optionally, change the AZURE_WEBAPP_PACKAGE_PATH and NODE_VERSION environment variables below.
-#
-# For more information on GitHub Actions for Azure: https://github.com/Azure/Actions
-# For more information on the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# For more samples to get started with GitHub Action workflows to deploy to Azure: https://github.com/Azure/actions-workflow-samples
-
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_NAME: devopsTopet    # set this to your application's name
-  AZURE_WEBAPP_PACKAGE_PATH: '.'      # set this to the path to your web app project, defaults to the repository root
-  NODE_VERSION: '20.x'                # set this to the node version to use
+  AZURE_WEBAPP_NAME: devopsTopet
+  AZURE_WEBAPP_PACKAGE_PATH: './dist'
+  NODE_VERSION: '20.x'
 
 permissions:
   contents: read
@@ -42,16 +23,32 @@ jobs:
         node-version: ${{ env.NODE_VERSION }}
         cache: 'npm'
 
-    - name: npm install, build, and test
+    - name: Install dependencies
       run: |
         npm install
+        npm audit fix || echo "npm audit fix encountered issues, continuing workflow..."
+        npm audit fix --force || echo "npm audit fix --force encountered issues, continuing workflow..."
+      
+    - name: Build application
+      run: |
         npm run build --if-present
 
-    - name: Upload artifact for deployment job
+    - name: Prepare deployment files
+      run: |
+        mkdir -p dist
+        # Adjust these paths to match your project structure
+        if [ -d "public" ]; then cp -R public dist/; fi
+        if [ -d "src" ]; then cp -R src dist/; fi
+        cp package.json package-lock.json dist/
+
+    - name: Archive files for deployment
+      run: zip -r node-app.zip ./dist
+
+    - name: Upload artifact for deployment
       uses: actions/upload-artifact@v3
       with:
         name: node-app
-        path: .
+        path: node-app.zip
 
   deploy:
     permissions:
@@ -68,7 +65,10 @@ jobs:
       with:
         name: node-app
 
-    - name: 'Deploy to Azure WebApp'
+    - name: Extract artifact
+      run: unzip node-app.zip
+
+    - name: Deploy to Azure WebApp
       id: deploy-to-webapp
       uses: azure/webapps-deploy@v2
       with:
